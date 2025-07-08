@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Presentation Timer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;700;900&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            -webkit-tap-highlight-color: transparent;
+        }
+        /* Custom class for the time display to handle extreme font sizes */
+        .timer-font {
+            font-size: clamp(8rem, 28vw, 20rem);
+            line-height: 1;
+        }
+        /* Custom class for pulsing animation */
+        .time-alert {
+            animation: pulse 1.5s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.85; transform: scale(1.02); }
+        }
+        /* Hide scrollbar for the slide list */
+        #slide-list::-webkit-scrollbar {
+            display: none;
+        }
+        #slide-list {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-white overflow-hidden antialiased">
+
+    <!-- App Container -->
+    <div id="app" class="h-screen w-screen flex flex-col items-center justify-center">
+
+        <!-- Loading State -->
+        <div id="loading-view" class="flex flex-col items-center gap-4">
+            <svg class="animate-spin h-10 w-10 text-cyan-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            <p class="text-gray-400">Loading your timer...</p>
+        </div>
+
+        <!-- Setup View -->
+        <div id="setup-view" class="hidden h-full w-full max-w-4xl mx-auto p-4 md:p-8 flex flex-col">
+            <header class="text-center mb-6">
+                <h1 class="text-4xl md:text-5xl font-bold text-cyan-300">Presentation Timer</h1>
+                <p class="text-gray-400 mt-2">Add your slides and their timings below.</p>
+            </header>
+
+            <!-- Form to Add New Slide -->
+            <form id="add-slide-form" class="flex flex-col sm:flex-row items-center gap-3 mb-6 bg-gray-800 p-4 rounded-xl shadow-lg">
+                <input type="text" id="slide-title-input" placeholder="Slide Title (e.g., Introduction)" class="w-full bg-gray-700 border-2 border-gray-600 rounded-lg px-4 py-3 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-cyan-400 focus:border-cyan-400 transition">
+                <div class="flex items-center gap-2 w-full sm:w-auto flex-shrink-0">
+                    <input type="number" id="slide-duration-mins-input" placeholder="Mins" min="0" class="w-24 bg-gray-700 border-2 border-gray-600 rounded-lg px-4 py-3 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-cyan-400 focus:border-cyan-400 transition">
+                    <input type="number" id="slide-duration-secs-input" placeholder="Secs" min="0" max="59" class="w-24 bg-gray-700 border-2 border-gray-600 rounded-lg px-4 py-3 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-cyan-400 focus:border-cyan-400 transition">
+                    <button type="submit" class="w-full sm:w-auto bg-cyan-500 hover:bg-cyan-400 text-gray-900 font-bold py-3 px-6 rounded-lg transition-transform transform hover:scale-105 shadow-md">Add</button>
+                </div>
+            </form>
+
+            <!-- List of Slides -->
+            <div id="slide-list-container" class="flex-grow bg-gray-800 rounded-xl shadow-lg p-4 overflow-y-auto">
+                <ul id="slide-list" class="space-y-3">
+                    <!-- Slide items will be injected here by JS -->
+                </ul>
+                 <p id="empty-list-message" class="text-center text-gray-500 py-8">Your slide list is empty. Add a slide to get started!</p>
+            </div>
+
+            <!-- Controls -->
+            <div class="mt-6 text-center">
+                 <button id="start-presentation-btn" class="bg-green-500 hover:bg-green-400 text-white font-bold py-4 px-10 rounded-lg text-xl transition-transform transform hover:scale-105 shadow-lg disabled:bg-gray-600 disabled:cursor-not-allowed disabled:scale-100">
+                    Start Presentation
+                </button>
+                <div class="mt-6 pt-6 border-t border-gray-700">
+                    <h3 class="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">Sync & Manage</h3>
+                    <div class="flex justify-center gap-4">
+                        <button id="export-btn" class="bg-gray-600 hover:bg-gray-500 text-white font-bold py-2 px-5 rounded-lg transition">Export to File</button>
+                        <label class="bg-blue-600 hover:bg-blue-500 text-white font-bold py-2 px-5 rounded-lg transition cursor-pointer">
+                            Import from File
+                            <input type="file" id="import-input" class="hidden" accept=".json">
+                        </label>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Timer View -->
+        <div id="timer-view" class="hidden h-full w-full flex flex-col items-center justify-between p-4 md:p-8 relative">
+            <!-- Top Info -->
+            <header class="w-full flex justify-between items-start">
+                <div class="text-left">
+                    <p id="timer-slide-number" class="text-xl md:text-2xl font-semibold text-cyan-300"></p>
+                    <h2 id="timer-slide-title" class="text-2xl md:text-4xl font-light"></h2>
+                    <p id="total-time-display" class="text-lg md:text-xl font-semibold text-green-300 mt-2">Total: 00:00</p>
+                </div>
+                <button id="settings-btn" class="bg-gray-800/50 hover:bg-gray-700/70 p-3 rounded-full transition flex-shrink-0">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+                </button>
+            </header>
+
+            <!-- Main Timer Display -->
+            <main class="flex-grow flex items-center justify-center">
+                <span id="time-display" class="font-black timer-font text-gray-100 tabular-nums">00:00</span>
+            </main>
+
+            <!-- Controls -->
+            <footer class="flex items-center justify-center gap-4 md:gap-8">
+                <button id="prev-btn" class="text-5xl md:text-6xl text-gray-400 hover:text-white transition-transform transform hover:scale-110">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="60" height="60" viewBox="0 0 24 24" fill="currentColor"><path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z"/></svg>
+                </button>
+                <button id="play-pause-btn" class="text-6xl md:text-8xl text-white bg-white/10 hover:bg-white/20 rounded-full w-28 h-28 md:w-36 md:h-36 flex items-center justify-center transition-transform transform hover:scale-105">
+                    <svg id="play-icon" xmlns="http://www.w3.org/2000/svg" width="60" height="60" viewBox="0 0 24 24" fill="currentColor" class="hidden"><path d="M8 5v14l11-7z"/></svg>
+                    <svg id="pause-icon" xmlns="http://www.w3.org/2000/svg" width="60" height="60" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+                </button>
+                <button id="next-btn" class="text-5xl md:text-6xl text-gray-400 hover:text-white transition-transform transform hover:scale-110">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="60" height="60" viewBox="0 0 24 24" fill="currentColor"><path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></svg>
+                </button>
+            </footer>
+        </div>
+    </div>
+
+    <script type="module">
+        // Firebase Imports
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, getDoc, setDoc, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // --- App State ---
+        let slides = [];
+        let currentSlideIndex = 0;
+        let timeRemaining = 0;
+        let totalElapsedTime = 0;
+        let timerInterval = null;
+        let isPaused = true;
+        let db, auth, userId, appId;
+
+        // --- DOM Elements ---
+        const loadingView = document.getElementById('loading-view');
+        const setupView = document.getElementById('setup-view');
+        const timerView = document.getElementById('timer-view');
+        const addSlideForm = document.getElementById('add-slide-form');
+        const slideTitleInput = document.getElementById('slide-title-input');
+        const slideDurationMinsInput = document.getElementById('slide-duration-mins-input');
+        const slideDurationSecsInput = document.getElementById('slide-duration-secs-input');
+        const slideList = document.getElementById('slide-list');
+        const emptyListMessage = document.getElementById('empty-list-message');
+        const startPresentationBtn = document.getElementById('start-presentation-btn');
+        const settingsBtn = document.getElementById('settings-btn');
+        const exportBtn = document.getElementById('export-btn');
+        const importInput = document.getElementById('import-input');
+        const timeDisplay = document.getElementById('time-display');
+        const timerSlideNumber = document.getElementById('timer-slide-number');
+        const timerSlideTitle = document.getElementById('timer-slide-title');
+        const totalTimeDisplay = document.getElementById('total-time-display');
+        const prevBtn = document.getElementById('prev-btn');
+        const nextBtn = document.getElementById('next-btn');
+        const playPauseBtn = document.getElementById('play-pause-btn');
+        const playIcon = document.getElementById('play-icon');
+        const pauseIcon = document.getElementById('pause-icon');
+
+        // --- Firebase Setup ---
+        async function initializeFirebase() {
+            try {
+                const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
+                appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+
+                if (!firebaseConfig) {
+                    console.error("Firebase config not found. Running in offline mode.");
+                    loadInitialView(true);
+                    return;
+                }
+
+                const app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                auth = getAuth(app);
+
+                onAuthStateChanged(auth, async (user) => {
+                    if (user) {
+                        userId = user.uid;
+                        await loadSlidesFromFirestore();
+                    } else {
+                        try {
+                            if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                                await signInWithCustomToken(auth, __initial_auth_token);
+                            } else {
+                                await signInAnonymously(auth);
+                            }
+                        } catch (error) {
+                            console.error("Error during sign-in:", error);
+                            loadInitialView(true);
+                        }
+                    }
+                });
+            } catch (error) {
+                console.error("Firebase initialization failed:", error);
+                loadInitialView(true);
+            }
+        }
+
+        // --- Data Persistence ---
+        async function loadSlidesFromFirestore() {
+            if (!db || !userId) {
+                console.warn("Firestore not ready, loading default slides.");
+                loadInitialView(true);
+                return;
+            }
+            const docRef = doc(db, 'artifacts', appId, 'users', userId, 'slides', 'config');
+            try {
+                const docSnap = await getDoc(docRef);
+                if (docSnap.exists() && docSnap.data().slides) {
+                    slides = docSnap.data().slides;
+                } else {
+                    slides = [];
+                }
+            } catch (error) {
+                console.error("Error loading slides from Firestore:", error);
+                slides = [];
+            }
+            loadInitialView();
+        }
+
+        async function saveSlidesToFirestore() {
+            if (!db || !userId) {
+                console.warn("Firestore not ready, cannot save slides.");
+                return;
+            }
+            const docRef = doc(db, 'artifacts', appId, 'users', userId, 'slides', 'config');
+            try {
+                await setDoc(docRef, { slides });
+            } catch (error) {
+                console.error("Error saving slides to Firestore:", error);
+            }
+        }
+
+        // --- UI Rendering ---
+        function renderSlideList() {
+            slideList.innerHTML = '';
+            if (slides.length === 0) {
+                emptyListMessage.classList.remove('hidden');
+                startPresentationBtn.disabled = true;
+                exportBtn.disabled = true;
+                exportBtn.classList.add('opacity-50', 'cursor-not-allowed');
+            } else {
+                emptyListMessage.classList.add('hidden');
+                startPresentationBtn.disabled = false;
+                exportBtn.disabled = false;
+                exportBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+                slides.forEach((slide, index) => {
+                    const li = document.createElement('li');
+                    li.className = 'flex items-center justify-between bg-gray-700 p-3 rounded-lg animate-fade-in';
+                    li.innerHTML = `
+                        <div class="flex items-center">
+                            <span class="text-cyan-400 font-bold w-8">${index + 1}.</span>
+                            <span class="font-medium">${slide.title}</span>
+                        </div>
+                        <div class="flex items-center gap-4">
+                            <span class="text-gray-400">${Math.floor(slide.duration / 60)}m ${slide.duration % 60}s</span>
+                            <button data-index="${index}" class="remove-btn text-red-500 hover:text-red-400 transition">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+                            </button>
+                        </div>
+                    `;
+                    slideList.appendChild(li);
+                });
+            }
+        }
+
+        function updateTimerDisplay() {
+            // Update slide-specific info
+            if (slides.length > 0) {
+                const slide = slides[currentSlideIndex];
+                timerSlideNumber.textContent = `SLIDE ${currentSlideIndex + 1} OF ${slides.length}`;
+                timerSlideTitle.textContent = slide.title;
+            }
+            
+            const minutes = String(Math.floor(timeRemaining / 60)).padStart(2, '0');
+            const seconds = String(timeRemaining % 60).padStart(2, '0');
+            timeDisplay.textContent = `${minutes}:${seconds}`;
+
+            timeDisplay.classList.toggle('time-alert', timeRemaining <= 10 && timeRemaining > 0);
+            
+            // Update total elapsed time display
+            const totalMins = String(Math.floor(totalElapsedTime / 60)).padStart(2, '0');
+            const totalSecs = String(totalElapsedTime % 60).padStart(2, '0');
+            totalTimeDisplay.textContent = `Total: ${totalMins}:${totalSecs}`;
+
+            // Update play/pause icons
+            playIcon.classList.toggle('hidden', !isPaused);
+            pauseIcon.classList.toggle('hidden', isPaused);
+        }
+
+        // --- View Switching ---
+        function showView(view) {
+            loadingView.classList.add('hidden');
+            setupView.classList.add('hidden');
+            timerView.classList.add('hidden');
+            view.classList.remove('hidden');
+        }
+
+        function loadInitialView(offline = false) {
+             if (offline) {
+                slides = [
+                    { title: "Offline Mode", duration: 10 },
+                    { title: "Connect to save slides", duration: 10 },
+                ];
+            }
+            renderSlideList();
+            showView(setupView);
+        }
+
+        // --- Timer Logic ---
+        function startTimer() {
+            if (timerInterval) clearInterval(timerInterval);
+            isPaused = false;
+            updateTimerDisplay();
+
+            timerInterval = setInterval(() => {
+                totalElapsedTime++;
+                if (timeRemaining > 0) {
+                    timeRemaining--;
+                }
+                
+                updateTimerDisplay();
+
+                // Auto-advance when slide timer hits zero
+                if (timeRemaining <= 0) {
+                    if (currentSlideIndex < slides.length - 1) {
+                        goToSlide(currentSlideIndex + 1);
+                    } else {
+                        pauseTimer(); // End of presentation
+                        timeDisplay.classList.add('text-green-500');
+                    }
+                }
+            }, 1000);
+        }
+
+        function pauseTimer() {
+            isPaused = true;
+            clearInterval(timerInterval);
+            updateTimerDisplay();
+        }
+
+        function togglePlayPause() {
+            if (slides.length === 0) return;
+            isPaused ? startTimer() : pauseTimer();
+        }
+
+        function goToSlide(index) {
+            if (index < 0 || index >= slides.length) {
+                if(index >= slides.length) pauseTimer(); // Pause if trying to go past the end
+                return;
+            }
+
+            currentSlideIndex = index;
+            timeRemaining = slides[currentSlideIndex].duration;
+            timeDisplay.classList.remove('text-red-500', 'text-green-500');
+            
+            // Auto-start the new slide's timer
+            startTimer();
+        }
+
+        // --- Import / Export Logic ---
+        function exportSlides() {
+            if (slides.length === 0) return;
+            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(slides, null, 2));
+            const downloadAnchorNode = document.createElement('a');
+            downloadAnchorNode.setAttribute("href", dataStr);
+            downloadAnchorNode.setAttribute("download", "presentation-timer-config.json");
+            document.body.appendChild(downloadAnchorNode);
+            downloadAnchorNode.click();
+            downloadAnchorNode.remove();
+        }
+
+        function importSlides(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const importedSlides = JSON.parse(e.target.result);
+                    // Basic validation
+                    if (Array.isArray(importedSlides) && importedSlides.every(s => typeof s.title === 'string' && typeof s.duration === 'number')) {
+                        slides = importedSlides;
+                        renderSlideList();
+                        saveSlidesToFirestore();
+                    } else {
+                        alert('Invalid file format. Please import a valid configuration file.');
+                    }
+                } catch (error) {
+                    alert('Error reading or parsing the file. Please ensure it is a valid JSON file.');
+                    console.error("Import error:", error);
+                }
+            };
+            reader.readAsText(file);
+            // Reset input value to allow importing the same file again
+            event.target.value = null;
+        }
+
+        // --- Event Handlers ---
+        addSlideForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const title = slideTitleInput.value.trim();
+            const durationMins = parseInt(slideDurationMinsInput.value, 10) || 0;
+            const durationSecs = parseInt(slideDurationSecsInput.value, 10) || 0;
+            const totalDuration = (durationMins * 60) + durationSecs;
+
+            if (title && totalDuration > 0) {
+                slides.push({ title, duration: totalDuration });
+                slideTitleInput.value = '';
+                slideDurationMinsInput.value = '';
+                slideDurationSecsInput.value = '';
+                renderSlideList();
+                saveSlidesToFirestore();
+                slideTitleInput.focus();
+            }
+        });
+
+        slideList.addEventListener('click', (e) => {
+            const removeBtn = e.target.closest('.remove-btn');
+            if (removeBtn) {
+                const indexToRemove = parseInt(removeBtn.dataset.index, 10);
+                slides.splice(indexToRemove, 1);
+                renderSlideList();
+                saveSlidesToFirestore();
+            }
+        });
+
+        startPresentationBtn.addEventListener('click', () => {
+            if (slides.length > 0) {
+                totalElapsedTime = 0; // Reset total time
+                goToSlide(0); // This will set up the first slide and auto-start it
+                showView(timerView);
+            }
+        });
+        
+        settingsBtn.addEventListener('click', () => {
+            pauseTimer();
+            showView(setupView);
+        });
+
+        exportBtn.addEventListener('click', exportSlides);
+        importInput.addEventListener('change', importSlides);
+
+        playPauseBtn.addEventListener('click', togglePlayPause);
+        nextBtn.addEventListener('click', () => goToSlide(currentSlideIndex + 1));
+        prevBtn.addEventListener('click', () => goToSlide(currentSlideIndex - 1));
+
+        window.addEventListener('keydown', (e) => {
+            if (timerView.classList.contains('hidden')) return; // Only listen in timer view
+            e.preventDefault();
+            if (e.code === 'Space') togglePlayPause();
+            if (e.code === 'ArrowRight') goToSlide(currentSlideIndex + 1);
+            if (e.code === 'ArrowLeft') goToSlide(currentSlideIndex - 1);
+        });
+
+        // --- Initial Load ---
+        initializeFirebase();
+
+    </script>
+</body>
+</html>
