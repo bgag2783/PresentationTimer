@@ -24,13 +24,21 @@
             0%, 100% { opacity: 1; transform: scale(1); }
             50% { opacity: 0.85; transform: scale(1.02); }
         }
-        /* Hide scrollbar for the slide list */
-        #slide-list::-webkit-scrollbar {
-            display: none;
+        /* Custom scrollbar for the slide list */
+        #slide-list-container::-webkit-scrollbar {
+            width: 8px;
         }
-        #slide-list {
+        #slide-list-container::-webkit-scrollbar-track {
+            background: #1f2937; /* gray-800 */
+        }
+        #slide-list-container::-webkit-scrollbar-thumb {
+            background: #4b5563; /* gray-600 */
+            border-radius: 4px;
+        }
+        #slide-list-container {
             -ms-overflow-style: none;
-            scrollbar-width: none;
+            scrollbar-width: thin;
+            scrollbar-color: #4b5563 #1f2937;
         }
         /* Style for edit mode inputs */
         .edit-mode-input {
@@ -56,15 +64,15 @@
         </div>
 
         <!-- Setup View -->
-        <div id="setup-view" class="hidden h-full w-full max-w-4xl mx-auto p-4 md:p-8 flex flex-col">
-            <header class="text-center mb-6">
+        <div id="setup-view" class="hidden h-full w-full max-w-4xl mx-auto p-4 md:p-6 flex flex-col">
+            <header class="text-center mb-3 flex-shrink-0">
                 <h1 class="text-4xl md:text-5xl font-bold text-cyan-300">Presentation Timer</h1>
                 <p class="text-gray-400 mt-2">Add, edit, and reorder your slides below.</p>
                 <p id="setup-total-time" class="text-lg font-semibold text-green-300 mt-2"></p>
             </header>
 
             <!-- Form to Add New Slide -->
-            <form id="add-slide-form" class="flex flex-col sm:flex-row items-center gap-3 mb-6 bg-gray-800 p-4 rounded-xl shadow-lg">
+            <form id="add-slide-form" class="flex flex-col sm:flex-row items-center gap-3 mb-3 bg-gray-800 p-4 rounded-xl shadow-lg flex-shrink-0">
                 <input type="text" id="slide-title-input" placeholder="Slide Title (e.g., Introduction)" class="w-full bg-gray-700 border-2 border-gray-600 rounded-lg px-4 py-3 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-cyan-400 focus:border-cyan-400 transition">
                 <div class="flex items-center gap-2 w-full sm:w-auto flex-shrink-0">
                     <input type="number" id="slide-duration-mins-input" placeholder="Mins" min="0" class="w-24 bg-gray-700 border-2 border-gray-600 rounded-lg px-4 py-3 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-cyan-400 focus:border-cyan-400 transition">
@@ -74,7 +82,7 @@
             </form>
 
             <!-- List of Slides -->
-            <div id="slide-list-container" class="flex-grow bg-gray-800 rounded-xl shadow-lg p-4 overflow-y-auto">
+            <div id="slide-list-container" class="flex-grow bg-gray-800 rounded-xl shadow-lg p-4 overflow-y-auto min-h-0">
                 <ul id="slide-list" class="space-y-3">
                     <!-- Slide items will be injected here by JS -->
                 </ul>
@@ -82,12 +90,16 @@
             </div>
 
             <!-- Controls -->
-            <div class="mt-6 text-center">
-                 <button id="start-presentation-btn" class="bg-green-500 hover:bg-green-400 text-white font-bold py-4 px-10 rounded-lg text-xl transition-transform transform hover:scale-105 shadow-lg disabled:bg-gray-600 disabled:cursor-not-allowed disabled:scale-100">
+            <div class="mt-3 text-center flex-shrink-0">
+                 <button id="start-presentation-btn" class="bg-green-500 hover:bg-green-400 text-white font-bold py-3 px-10 rounded-lg text-xl transition-transform transform hover:scale-105 shadow-lg disabled:bg-gray-600 disabled:cursor-not-allowed disabled:scale-100">
                     Start Presentation
                 </button>
-                <div class="mt-6 pt-6 border-t border-gray-700">
-                    <h3 class="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">Sync & Manage</h3>
+                <div class="mt-3 pt-3 border-t border-gray-700">
+                    <h3 class="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-2">Settings & Sync</h3>
+                    <div class="flex items-center justify-center gap-2 mb-2">
+                        <input type="checkbox" id="auto-advance-checkbox" class="h-4 w-4 rounded text-cyan-500 focus:ring-cyan-500 border-gray-500 bg-gray-600 cursor-pointer">
+                        <label for="auto-advance-checkbox" class="text-gray-300 cursor-pointer">Auto-Advance to Next Slide</label>
+                    </div>
                     <div class="flex justify-center gap-4">
                         <button id="export-btn" class="bg-gray-600 hover:bg-gray-500 text-white font-bold py-2 px-5 rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed">Export to File</button>
                         <label class="bg-blue-600 hover:bg-blue-500 text-white font-bold py-2 px-5 rounded-lg transition cursor-pointer">
@@ -147,6 +159,8 @@
         let totalElapsedTime = 0;
         let timerInterval = null;
         let isPaused = true;
+        let autoAdvanceEnabled = true;
+        let isCountingUp = false;
         let db, auth, userId, appId;
 
         // --- DOM Elements ---
@@ -164,6 +178,7 @@
         const settingsBtn = document.getElementById('settings-btn');
         const exportBtn = document.getElementById('export-btn');
         const importInput = document.getElementById('import-input');
+        const autoAdvanceCheckbox = document.getElementById('auto-advance-checkbox');
         const timeDisplay = document.getElementById('time-display');
         const timerSlideNumber = document.getElementById('timer-slide-number');
         const timerSlideTitle = document.getElementById('timer-slide-title');
@@ -222,7 +237,14 @@
             const docRef = doc(db, 'artifacts', appId, 'users', userId, 'slides', 'config');
             try {
                 const docSnap = await getDoc(docRef);
-                slides = (docSnap.exists() && docSnap.data().slides) ? docSnap.data().slides : [];
+                if (docSnap.exists()) {
+                    const data = docSnap.data();
+                    slides = data.slides || [];
+                    autoAdvanceEnabled = typeof data.autoAdvance === 'boolean' ? data.autoAdvance : true;
+                } else {
+                    slides = [];
+                    autoAdvanceEnabled = true;
+                }
             } catch (error) {
                 console.error("Error loading slides from Firestore:", error);
                 slides = [];
@@ -234,7 +256,7 @@
             if (!db || !userId) return;
             const docRef = doc(db, 'artifacts', appId, 'users', userId, 'slides', 'config');
             try {
-                await setDoc(docRef, { slides });
+                await setDoc(docRef, { slides, autoAdvance: autoAdvanceEnabled });
             } catch (error) {
                 console.error("Error saving slides to Firestore:", error);
             }
@@ -244,7 +266,6 @@
         function renderSlideList() {
             slideList.innerHTML = '';
             
-            // Calculate and display total planned time
             const totalPlannedSeconds = slides.reduce((acc, slide) => acc + slide.duration, 0);
             const totalPlannedMins = Math.floor(totalPlannedSeconds / 60);
             const totalPlannedSecs = totalPlannedSeconds % 60;
@@ -309,10 +330,17 @@
                 timerSlideNumber.textContent = `SLIDE ${currentSlideIndex + 1} OF ${slides.length}`;
                 timerSlideTitle.textContent = slide.title;
             }
-            const minutes = String(Math.floor(timeRemaining / 60)).padStart(2, '0');
-            const seconds = String(timeRemaining % 60).padStart(2, '0');
+            const minutes = String(Math.floor(Math.abs(timeRemaining) / 60)).padStart(2, '0');
+            const seconds = String(Math.abs(timeRemaining) % 60).padStart(2, '0');
             timeDisplay.textContent = `${minutes}:${seconds}`;
-            timeDisplay.classList.toggle('time-alert', timeRemaining <= 10 && timeRemaining > 0);
+            
+            timeDisplay.classList.remove('time-alert', 'text-red-500');
+            if (isCountingUp) {
+                timeDisplay.classList.add('text-red-500');
+            } else if (timeRemaining <= 10 && timeRemaining > 0) {
+                timeDisplay.classList.add('time-alert');
+            }
+
             const totalMins = String(Math.floor(totalElapsedTime / 60)).padStart(2, '0');
             const totalSecs = String(totalElapsedTime % 60).padStart(2, '0');
             totalTimeDisplay.textContent = `Total: ${totalMins}:${totalSecs}`;
@@ -330,11 +358,10 @@
 
         function loadInitialView(offline = false) {
              if (offline) {
-                slides = [
-                    { title: "Offline Mode", duration: 10 },
-                    { title: "Connect to save slides", duration: 10 },
-                ];
+                slides = [{ title: "Offline Mode", duration: 10 }];
+                autoAdvanceEnabled = true;
             }
+            autoAdvanceCheckbox.checked = autoAdvanceEnabled;
             renderSlideList();
             showView(setupView);
         }
@@ -346,16 +373,25 @@
             updateTimerDisplay();
             timerInterval = setInterval(() => {
                 totalElapsedTime++;
-                if (timeRemaining > 0) timeRemaining--;
-                updateTimerDisplay();
-                if (timeRemaining <= 0) {
-                    if (currentSlideIndex < slides.length - 1) {
-                        goToSlide(currentSlideIndex + 1);
+                if (isCountingUp) {
+                    timeRemaining++;
+                } else if (timeRemaining > 0) {
+                    timeRemaining--;
+                }
+                
+                if (!isCountingUp && timeRemaining <= 0) {
+                    if (autoAdvanceEnabled) {
+                        if (currentSlideIndex < slides.length - 1) {
+                            goToSlide(currentSlideIndex + 1);
+                        } else {
+                            pauseTimer();
+                            timeDisplay.classList.add('text-green-500');
+                        }
                     } else {
-                        pauseTimer();
-                        timeDisplay.classList.add('text-green-500');
+                        isCountingUp = true;
                     }
                 }
+                updateTimerDisplay();
             }, 1000);
         }
 
@@ -375,6 +411,7 @@
                 if(index >= slides.length) pauseTimer();
                 return;
             }
+            isCountingUp = false;
             currentSlideIndex = index;
             timeRemaining = slides[currentSlideIndex].duration;
             timeDisplay.classList.remove('text-red-500', 'text-green-500');
@@ -384,7 +421,8 @@
         // --- Import / Export Logic ---
         function exportSlides() {
             if (slides.length === 0) return;
-            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(slides, null, 2));
+            const config = { slides, autoAdvance: autoAdvanceEnabled };
+            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(config, null, 2));
             const downloadAnchorNode = document.createElement('a');
             downloadAnchorNode.setAttribute("href", dataStr);
             downloadAnchorNode.setAttribute("download", "presentation-timer-config.json");
@@ -399,9 +437,11 @@
             const reader = new FileReader();
             reader.onload = function(e) {
                 try {
-                    const importedSlides = JSON.parse(e.target.result);
-                    if (Array.isArray(importedSlides) && importedSlides.every(s => typeof s.title === 'string' && typeof s.duration === 'number')) {
-                        slides = importedSlides;
+                    const config = JSON.parse(e.target.result);
+                    if (Array.isArray(config.slides) && config.slides.every(s => typeof s.title === 'string' && typeof s.duration === 'number')) {
+                        slides = config.slides;
+                        autoAdvanceEnabled = typeof config.autoAdvance === 'boolean' ? config.autoAdvance : true;
+                        autoAdvanceCheckbox.checked = autoAdvanceEnabled;
                         renderSlideList();
                         saveSlidesToFirestore();
                     } else {
@@ -434,13 +474,11 @@
             }
         });
         
-        // --- Main event handler for slide list actions (edit, save, reorder, delete) ---
         slideList.addEventListener('click', (e) => {
             const li = e.target.closest('li');
             if (!li) return;
             const index = parseInt(li.dataset.index, 10);
 
-            // --- Handle Edit/Save ---
             const viewMode = li.querySelector('.slide-view-mode');
             const editMode = li.querySelector('.slide-edit-mode');
             const editBtn = li.querySelector('.edit-btn');
@@ -466,7 +504,6 @@
                 }
             }
 
-            // --- Handle Reordering ---
             if (e.target.closest('.move-up-btn')) {
                 if (index > 0) {
                     [slides[index], slides[index - 1]] = [slides[index - 1], slides[index]];
@@ -482,7 +519,6 @@
                 }
             }
 
-            // --- Handle Deletion ---
             if (e.target.closest('.remove-btn')) {
                 slides.splice(index, 1);
                 saveSlidesToFirestore();
@@ -490,6 +526,10 @@
             }
         });
 
+        autoAdvanceCheckbox.addEventListener('change', () => {
+            autoAdvanceEnabled = autoAdvanceCheckbox.checked;
+            saveSlidesToFirestore();
+        });
 
         startPresentationBtn.addEventListener('click', () => {
             if (slides.length > 0) {
