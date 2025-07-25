@@ -54,15 +54,6 @@
     <!-- App Container -->
     <div id="app" class="h-screen w-screen flex flex-col items-center justify-center">
 
-        <!-- Loading State -->
-        <div id="loading-view" class="flex flex-col items-center gap-4">
-            <svg class="animate-spin h-10 w-10 text-cyan-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-            </svg>
-            <p class="text-gray-400">Loading your timer...</p>
-        </div>
-
         <!-- Setup View -->
         <div id="setup-view" class="hidden h-full w-full max-w-4xl mx-auto p-4 md:p-6 flex flex-col">
             <header class="text-center mb-3 flex-shrink-0">
@@ -146,12 +137,7 @@
         </div>
     </div>
 
-    <script type="module">
-        // Firebase Imports
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, getDoc, setDoc, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-
+    <script>
         // --- App State ---
         let slides = [];
         let currentSlideIndex = 0;
@@ -161,10 +147,8 @@
         let isPaused = true;
         let autoAdvanceEnabled = true;
         let isCountingUp = false;
-        let db, auth, userId, appId;
 
         // --- DOM Elements ---
-        const loadingView = document.getElementById('loading-view');
         const setupView = document.getElementById('setup-view');
         const timerView = document.getElementById('timer-view');
         const addSlideForm = document.getElementById('add-slide-form');
@@ -189,77 +173,35 @@
         const playIcon = document.getElementById('play-icon');
         const pauseIcon = document.getElementById('pause-icon');
 
-        // --- Firebase Setup ---
-        async function initializeFirebase() {
-            try {
-                const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
-                appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-
-                if (!firebaseConfig) {
-                    console.error("Firebase config not found. Running in offline mode.");
-                    loadInitialView(true);
-                    return;
-                }
-
-                const app = initializeApp(firebaseConfig);
-                db = getFirestore(app);
-                auth = getAuth(app);
-
-                onAuthStateChanged(auth, async (user) => {
-                    if (user) {
-                        userId = user.uid;
-                        await loadSlidesFromFirestore();
-                    } else {
-                        try {
-                            if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                                await signInWithCustomToken(auth, __initial_auth_token);
-                            } else {
-                                await signInAnonymously(auth);
-                            }
-                        } catch (error) {
-                            console.error("Error during sign-in:", error);
-                            loadInitialView(true);
-                        }
-                    }
-                });
-            } catch (error) {
-                console.error("Firebase initialization failed:", error);
-                loadInitialView(true);
-            }
-        }
-
-        // --- Data Persistence ---
-        async function loadSlidesFromFirestore() {
-            if (!db || !userId) {
-                loadInitialView(true);
-                return;
-            }
-            const docRef = doc(db, 'artifacts', appId, 'users', userId, 'slides', 'config');
-            try {
-                const docSnap = await getDoc(docRef);
-                if (docSnap.exists()) {
-                    const data = docSnap.data();
-                    slides = data.slides || [];
-                    autoAdvanceEnabled = typeof data.autoAdvance === 'boolean' ? data.autoAdvance : true;
-                } else {
+        // --- Data Persistence (localStorage) ---
+        function loadSlidesFromLocalStorage() {
+            const savedConfig = localStorage.getItem('presentationTimerConfig');
+            if (savedConfig) {
+                try {
+                    const config = JSON.parse(savedConfig);
+                    slides = config.slides || [];
+                    autoAdvanceEnabled = typeof config.autoAdvance === 'boolean' ? config.autoAdvance : true;
+                } catch (e) {
+                    console.error("Error parsing saved config:", e);
                     slides = [];
                     autoAdvanceEnabled = true;
                 }
-            } catch (error) {
-                console.error("Error loading slides from Firestore:", error);
+            } else {
+                // Default state for first-time users
                 slides = [];
+                autoAdvanceEnabled = true;
             }
-            loadInitialView();
+            autoAdvanceCheckbox.checked = autoAdvanceEnabled;
+            renderSlideList();
+            showView(setupView);
         }
 
-        async function saveSlidesToFirestore() {
-            if (!db || !userId) return;
-            const docRef = doc(db, 'artifacts', appId, 'users', userId, 'slides', 'config');
-            try {
-                await setDoc(docRef, { slides, autoAdvance: autoAdvanceEnabled });
-            } catch (error) {
-                console.error("Error saving slides to Firestore:", error);
-            }
+        function saveSlidesToLocalStorage() {
+            const config = {
+                slides: slides,
+                autoAdvance: autoAdvanceEnabled
+            };
+            localStorage.setItem('presentationTimerConfig', JSON.stringify(config));
         }
 
         // --- UI Rendering ---
@@ -350,20 +292,9 @@
 
         // --- View Switching ---
         function showView(view) {
-            loadingView.classList.add('hidden');
-            setupView.classList.add('hidden');
-            timerView.classList.add('hidden');
+            document.getElementById('setup-view').classList.add('hidden');
+            document.getElementById('timer-view').classList.add('hidden');
             view.classList.remove('hidden');
-        }
-
-        function loadInitialView(offline = false) {
-             if (offline) {
-                slides = [{ title: "Offline Mode", duration: 10 }];
-                autoAdvanceEnabled = true;
-            }
-            autoAdvanceCheckbox.checked = autoAdvanceEnabled;
-            renderSlideList();
-            showView(setupView);
         }
 
         // --- Timer Logic ---
@@ -443,7 +374,7 @@
                         autoAdvanceEnabled = typeof config.autoAdvance === 'boolean' ? config.autoAdvance : true;
                         autoAdvanceCheckbox.checked = autoAdvanceEnabled;
                         renderSlideList();
-                        saveSlidesToFirestore();
+                        saveSlidesToLocalStorage();
                     } else {
                         alert('Invalid file format.');
                     }
@@ -469,7 +400,7 @@
                 slideDurationMinsInput.value = '';
                 slideDurationSecsInput.value = '';
                 renderSlideList();
-                saveSlidesToFirestore();
+                saveSlidesToLocalStorage();
                 slideTitleInput.focus();
             }
         });
@@ -499,7 +430,7 @@
                 if (newTitle) {
                     slides[index].title = newTitle;
                     slides[index].duration = (newMins * 60) + newSecs;
-                    saveSlidesToFirestore();
+                    saveSlidesToLocalStorage();
                     renderSlideList();
                 }
             }
@@ -507,28 +438,28 @@
             if (e.target.closest('.move-up-btn')) {
                 if (index > 0) {
                     [slides[index], slides[index - 1]] = [slides[index - 1], slides[index]];
-                    saveSlidesToFirestore();
+                    saveSlidesToLocalStorage();
                     renderSlideList();
                 }
             }
             if (e.target.closest('.move-down-btn')) {
                  if (index < slides.length - 1) {
                     [slides[index], slides[index + 1]] = [slides[index + 1], slides[index]];
-                    saveSlidesToFirestore();
+                    saveSlidesToLocalStorage();
                     renderSlideList();
                 }
             }
 
             if (e.target.closest('.remove-btn')) {
                 slides.splice(index, 1);
-                saveSlidesToFirestore();
+                saveSlidesToLocalStorage();
                 renderSlideList();
             }
         });
 
         autoAdvanceCheckbox.addEventListener('change', () => {
             autoAdvanceEnabled = autoAdvanceCheckbox.checked;
-            saveSlidesToFirestore();
+            saveSlidesToLocalStorage();
         });
 
         startPresentationBtn.addEventListener('click', () => {
@@ -560,7 +491,7 @@
         });
 
         // --- Initial Load ---
-        initializeFirebase();
+        loadSlidesFromLocalStorage();
 
     </script>
 </body>
